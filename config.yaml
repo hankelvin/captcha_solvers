@@ -1,0 +1,72 @@
+model:          qwenomni # phi4mm
+size:           3B       # 5B, 7B
+mode:           zeroshot # or 'oneshot', 'sixshot', 'think_zeroshot', 'think_oneshot', 'think_sixshot'
+dirpath:        /workspace/captcha_solvers
+dirpath_hub:    /workspace/llm_models/hub
+inputs_path:    sampleCaptchas/input/
+common_chars:   Q0O1I5S2Z
+load_peft_ckpt_path: null
+savepath:       null
+savepath_train_outputs: null
+savepath_test_outputs:  null
+
+gen_args:
+  do_sample:              False
+  max_new_tokens:         1024
+  temperature:            0.0
+
+models: 
+  qwenomni:
+    3B: Qwen/Qwen2.5-Omni-3B
+    7B: Qwen/Qwen2.5-Omni-7B
+  phi4mm:
+    5B: microsoft/Phi-4-multimodal-instruct
+
+grpo_settings:
+  learning_rate:                1e-6
+  warmup_ratio:                 0.1
+  num_iterations:               1
+  max_steps:                    1000    # set this considering gradient_accumulation_steps
+  beta:                         0.04
+  epsilon:                      0.2     # default value in TRL, also value in Schulman et al 2017 (https://arxiv.org/pdf/1707.06347). bounds the size of the policy update 
+  epsilon_high:                 0.28    # DAPO finding
+  reward_weights:               null
+  sync_ref_model:               False
+  ref_model_mixup_alpha:        null # 0.9
+  ref_model_sync_steps:         null # 64
+  # this should Nx of num_cands, i.e. N/num_cands is the number of prompts per batch
+  gen_bsz:                      4       # this controls per_device_train_batch_size in TrainerArgs
+  num_cands:                    4       # this controls how many candidates per prompt
+  gradient_accumulation_steps:  4       # impacts size of global_step 
+  use_dora:                     False
+  lora_rank:                    16
+  lora_alpha_ratio:             0.5
+  lora_dropout:                 0.05
+  max_prompt_length:            2000
+  max_seq_length:               ${gen_args.max_new_tokens}+${grpo_settings.max_prompt_length}
+  gpu_memory_utilization:       0.6
+  # temperature to sample num_cands from each prompt
+  # the more different, the better for exploration
+  temperature:                  0.6
+  scale_rewards:                False
+  save_steps:                   100
+  eval_every_save_step:         True
+  mask_truncated_completions:   True
+  target_modules:               ["q_proj", "k_proj", "v_proj", "out_proj", "gate_proj", "up_proj", "down_proj"]
+
+prompt_library:
+  system: You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.
+
+  system_message_reasoning: You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech. This is a conversation between User and Assistant. The User describes a task and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> tags and the answer is enclosed within <answer> </answer> tags, (i.e. <think> {reasoning process here} </think> and <answer> {answer here} </answer>). The Assistant is able to carefully examine images, identify potentially visually ambiguous cases, then carry out thinking to resolve the ambiguities before answering the questions from the User about the image.
+
+  base: "There should be 5 characters in the image (the characters can only come from the following (i) capitalised letters from A to Z, and (ii) numbers from 0 to 9). The background of the image has light grey patterns and the foreground has the sequence of characters in black. What is the sequence of characters in the image? "
+  
+  zeroshot: "${prompt_library.base}Reply only with the sequence and stop immediately." 
+  
+  fewshot: "${prompt_library.zeroshot}"
+  
+  think: "${prompt_library.base}Start by describing what you see character by character, enclose this part between <think> and </think> tags, then go on to give the answer of what the 5 characters are. Enclose the answer in <answer> and </answer> tags."
+
+  think_grpo: "${prompt_library.base}Start by describing what you can see on the image, then reason over what you can see and what you know the image should have. Be mindful of potential visual ambiguities (such as the letter 'I' and number '1'). It is very important that you enclose this reasoning part between <think> and </think> tags. Then go on to give the answer of what the 5 characters are; it is very important that you enclose this answer part between <answer> and </answer> tags."
+
+  label_think_fewshot: {"input02.jpg": "<think> The first character I see is the number 6. The next character could be an 0, O or Q, but it looks rounder than a 0 and does not have a stroke on its lower right so it cannot be a Q, so it is a capital O. This is followed by the number 5 and then capital W. The fifth character might be the number 1, or capital I, but I see it has a sloping tip on its top so it is the number 1. </think> <answer> 6O5W1 </answer>",   "input17.jpg": "<think> The first character I see is the number 2, the next character could be an 0, O or Q, but it looks smaller than an O and does not have a stroke on its lower right so it cannot be a Q, so it is a number 0. I see the letters B and H. The last character has a stroke on its lower right so it must the capital Q. </think> <answer> 20BHQ </answer>",   "input05.jpg": "<think> The first character I see is a capital O because it looks bigger than a 0. This is followed by the number 1, capital R, the number 7 and finally a capital Q . </think> <answer> O1R7Q </answer>",  "input09.jpg": "<think> The first character I see is capital Z, then capital G and capital J, and then a capital S and the number 3. </think> <answer> ZGJS3 </answer>",  "input04.jpg": "<think> The first character I see is a capital V, then a capital L. The third letter could be a capital I or 1, but it does not have a sloping stroke on its top so this must be a capital I. The next characters are the number 2 and capital C. </think> <answer> VLI2C </answer>", "input19.jpg": "<think> The first character I see is the number 5. The next letter could be a capital I or 1, but it does not have a sloping stroke on its top so this must be a capital I. This is followed by the number 8, capital V and finally a capital E.  </think> <answer> 5I8VE </answer>"}
