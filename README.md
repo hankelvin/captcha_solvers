@@ -113,7 +113,7 @@ The zeroshot performance of the models above are already relatively high. EM of 
     ```
 
 #### Summary stats
-The results below show the EM and CAR scores across the training steps (3600 steps) of GRPO post-training using the 6 exemplars as RLVR training instances. The results indicate that a potential increase of 5% (i.e. increase in EM from 17/20 to 18/20) in captcha solving may be possible by using only 6 RLVR instances. 
+The results below show the EM and CAR scores across the training steps (3600 steps; gradient accumulation of 4 steps) of GRPO post-training using the 6 exemplars as RLVR training instances. The results indicate that a potential increase of 5% (i.e. increase in EM from 17/20 to 18/20) in captcha solving may be possible by using only 6 RLVR instances. 
 
 | model     | size| setting          | CAR   | EM    |
 |-----------|-----|------------------|-------|-------|
@@ -128,3 +128,5 @@ The results below show the EM and CAR scores across the training steps (3600 ste
 | Phi4 MM   | 5B  | GRPO step 3200   | 0.87  | 16/20 |
 | Phi4 MM   | 5B  | GRPO step 3600   | 0.96  | 16/20 |
 |-----------|-----|------------------|-------|-------|
+
+The outputs for these results can be found in the [`results/grpo_phi4mm_5B_think_grpo_zeroshot`](https://github.com/hankelvin/captcha_solvers/blob/main/results/grpo_phi4mm_5B_think_grpo_zeroshot) folder. The files in the `output` folder there are the predictions for the full set of files from the `sampleCaptchas/input` folder at the GRPO step 3600 checkpoint.

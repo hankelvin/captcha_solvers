@@ -1,0 +1,69 @@
+"model: phi4mm\nsize: 5B\nmode: think_grpo_zeroshot\ndirpath: /workspace/captcha_solvers\n\
+  dirpath_hub: /workspace/llm_models/hub\ninputs_path: sampleCaptchas/input/\ncommon_chars:\
+  \ Q0O1I5S2Z\nload_peft_ckpt_path: null\nsavepath: /workspace/captcha_solvers/results/grpo_phi4mm_5B_think_grpo_zeroshot\n\
+  savepath_train_outputs: /workspace/captcha_solvers/results/grpo_phi4mm_5B_think_grpo_zeroshot/train_outputs.json\n\
+  savepath_test_outputs: /workspace/captcha_solvers/results/grpo_phi4mm_5B_think_grpo_zeroshot/test_outputs.json\n\
+  gen_args:\n  do_sample: false\n  max_new_tokens: 1024\n  temperature: 0.6\nmodels:\n\
+  \  qwenomni:\n    3B: Qwen/Qwen2.5-Omni-3B\n    7B: Qwen/Qwen2.5-Omni-7B\n  phi4mm:\n\
+  \    5B: microsoft/Phi-4-multimodal-instruct\ngrpo_settings:\n  learning_rate: 1.0e-06\n\
+  \  warmup_ratio: 0.1\n  num_iterations: 1\n  max_steps: 1000\n  beta: 0.04\n  epsilon:\
+  \ 0.2\n  epsilon_high: 0.28\n  reward_weights: null\n  sync_ref_model: false\n \
+  \ ref_model_mixup_alpha: null\n  ref_model_sync_steps: null\n  gen_bsz: 4\n  num_cands:\
+  \ 4\n  gradient_accumulation_steps: 4\n  use_dora: false\n  lora_rank: 16\n  lora_alpha_ratio:\
+  \ 0.5\n  lora_dropout: 0.05\n  max_prompt_length: 2000\n  max_seq_length: 3024\n\
+  \  gpu_memory_utilization: 0.6\n  temperature: 0.6\n  scale_rewards: false\n  save_steps:\
+  \ 100\n  eval_every_save_step: true\n  mask_truncated_completions: true\n  target_modules:\n\
+  \  - q_proj\n  - k_proj\n  - v_proj\n  - out_proj\n  - gate_proj\n  - up_proj\n\
+  \  - down_proj\nprompt_library:\n  system: You are Qwen, a virtual human developed\
+  \ by the Qwen Team, Alibaba Group,\n    capable of perceiving auditory and visual\
+  \ inputs, as well as generating text and\n    speech.\n  system_message_reasoning:\
+  \ You are Qwen, a virtual human developed by the Qwen Team,\n    Alibaba Group,\
+  \ capable of perceiving auditory and visual inputs, as well as generating\n    text\
+  \ and speech. This is a conversation between User and Assistant. The User describes\n\
+  \    a task and the Assistant solves it. The Assistant first thinks about the reasoning\n\
+  \    process in the mind and then provides the User with the answer. The reasoning\n\
+  \    process is enclosed within <think> </think> tags and the answer is enclosed\
+  \ within\n    <answer> </answer> tags, (i.e. <think> {reasoning process here} </think>\
+  \ and <answer>\n    {answer here} </answer>). The Assistant is able to carefully\
+  \ examine images, identify\n    potentially visually ambiguous cases, then carry\
+  \ out thinking to resolve the ambiguities\n    before answering the questions from\
+  \ the User about the image.\n  base: 'There should be 5 characters in the image\
+  \ (the characters can only come from\n    the following (i) capitalised letters\
+  \ from A to Z, and (ii) numbers from 0 to\n    9). The background of the image has\
+  \ light grey patterns and the foreground has\n    the sequence of characters in\
+  \ black. What is the sequence of characters in the\n    image? '\n  zeroshot: ${prompt_library.base}Reply\
+  \ only with the sequence and stop immediately.\n  fewshot: ${prompt_library.zeroshot}\n\
+  \  think: ${prompt_library.base}Start by describing what you see character by character,\n\
+  \    enclose this part between <think> and </think> tags, then go on to give the\
+  \ answer\n    of what the 5 characters are. Enclose the answer in <answer> and </answer>\
+  \ tags.\n  think_grpo: ${prompt_library.base}Start by describing what you can see\
+  \ on the image,\n    then reason over what you can see and what you know the image\
+  \ should have. Be\n    mindful of potential visual ambiguities (such as the letter\
+  \ 'I' and number '1').\n    It is very important that you enclose this reasoning\
+  \ part between <think> and\n    </think> tags. Then go on to give the answer of\
+  \ what the 5 characters are; it\n    is very important that you enclose this answer\
+  \ part between <answer> and </answer>\n    tags.\n  label_think_fewshot:\n    input02.jpg:\
+  \ <think> The first character I see is the number 6. The next character\n      could\
+  \ be an 0, O or Q, but it looks rounder than a 0 and does not have a stroke\n  \
+  \    on its lower right so it cannot be a Q, so it is a capital O. This is followed\n\
+  \      by the number 5 and then capital W. The fifth character might be the number\n\
+  \      1, or capital I, but I see it has a sloping tip on its top so it is the number\n\
+  \      1. </think> <answer> 6O5W1 </answer>\n    input17.jpg: <think> The first\
+  \ character I see is the number 2, the next character\n      could be an 0, O or\
+  \ Q, but it looks smaller than an O and does not have a stroke\n      on its lower\
+  \ right so it cannot be a Q, so it is a number 0. I see the letters\n      B and\
+  \ H. The last character has a stroke on its lower right so it must the capital\n\
+  \      Q. </think> <answer> 20BHQ </answer>\n    input05.jpg: <think> The first\
+  \ character I see is a capital O because it looks\n      bigger than a 0. This is\
+  \ followed by the number 1, capital R, the number 7 and\n      finally a capital\
+  \ Q . </think> <answer> O1R7Q </answer>\n    input09.jpg: <think> The first character\
+  \ I see is capital Z, then capital G and\n      capital J, and then a capital S\
+  \ and the number 3. </think> <answer> ZGJS3 </answer>\n    input04.jpg: <think>\
+  \ The first character I see is a capital V, then a capital\n      L. The third letter\
+  \ could be a capital I or 1, but it does not have a sloping\n      stroke on its\
+  \ top so this must be a capital I. The next characters are the number\n      2 and\
+  \ capital C. </think> <answer> VLI2C </answer>\n    input19.jpg: <think> The first\
+  \ character I see is the number 5. The next letter\n      could be a capital I or\
+  \ 1, but it does not have a sloping stroke on its top\n      so this must be a capital\
+  \ I. This is followed by the number 8, capital V and\n      finally a capital E.\
+  \  </think> <answer> 5I8VE </answer>\n"
