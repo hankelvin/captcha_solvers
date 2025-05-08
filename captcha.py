@@ -10,6 +10,7 @@ class Captcha(object):
         elif torch.cuda.is_available(): device = 'cuda'
         else:                           device = 'cpu'
     
+        # 0. set up config, load exemplars
         cfg = OmegaConf.load('config.yaml')
         cfg.model = 'qwenomni'
         cfg.size  = '7B'
@@ -19,8 +20,8 @@ class Captcha(object):
 
         self.cfg                = cfg
         self.use_audio_in_video = False
-        
         self.exemplars          = exemplars
+        
         # 1. load model and media processor
         self.model_path         = cfg.models[cfg.model][cfg.size]    
         attn_implementation     = 'flash_attention_2'
@@ -34,7 +35,8 @@ class Captcha(object):
             self.model.disable_talker()
             self.processor          = Qwen2_5OmniProcessor.from_pretrained(self.model_path)
             self.process_mm_info    = process_mm_info
-        else: 
+        
+        elif cfg.model in ['phi4mm']: 
             from transformers import AutoModelForCausalLM, AutoProcessor, GenerationConfig
             self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code = True)
             self.model = AutoModelForCausalLM.from_pretrained(
@@ -47,6 +49,8 @@ class Captcha(object):
             # Load generation config
             self.model.generation_config = GenerationConfig.from_pretrained(self.model_path)
             self.process_mm_info = None
+        
+        else: raise NotImplementedError
 
     def __call__(self, im_path, save_path):
         """
@@ -70,6 +74,8 @@ class Captcha(object):
         
         mode_key    = 'zeroshot' if 'zeroshot' in self.cfg.mode else 'fewshot'
         think_key   = 'think_grpo' if 'grpo' in self.cfg.mode else 'think'
+
+        # add few-shot exemplars (if specified)
         if self.exemplars: 
             for oneshot_fp, oneshot_label in self.exemplars.items():
                 if  self.cfg.mode.startswith('think'):
@@ -85,6 +91,7 @@ class Captcha(object):
                 conversation.append({'role': 'assistant',
                                     'content': [{'type': 'text', 'text':  label},],})
 
+        # add task to be solved
         if  self.cfg.mode.startswith('think'):
             prompt = self.cfg.prompt_library[think_key]
         else: prompt = self.cfg.prompt_library[mode_key]
@@ -111,6 +118,7 @@ class Captcha(object):
         
         mode_key    = 'zeroshot' if 'zeroshot' in self.cfg.mode else 'fewshot'
         think_key   = 'think_grpo' if 'grpo' in self.cfg.mode else 'think'
+        # add few-shot exemplars (if specified)
         if self.exemplars: 
             for oneshot_fp, oneshot_label in self.exemplars.items():
                 if  self.cfg.mode.startswith('think'):
@@ -124,6 +132,7 @@ class Captcha(object):
                 prompt = f'{user_prompt}<|image_{len(image_files)}|>{prompt}{prompt_suffix}{assistant_prompt}{label}{prompt_suffix}'
                 prompt_text += prompt
 
+        # add task to be solved
         if  self.cfg.mode.startswith('think'):
             prompt = self.cfg.prompt_library[think_key]
         else: prompt = self.cfg.prompt_library[mode_key]
@@ -218,6 +227,7 @@ def extract_results(mode, prompt_completion_texts, prompt_text, model_path, proc
                 except: c = ''
             predictions.append(c)
     else: predictions = completions
+
     return prefills, completions, predictions
 
 def find_exemplar(test_pool, cands, r):
@@ -237,6 +247,7 @@ def find_exemplar(test_pool, cands, r):
                 found_exp[k] = v
                 used_char.update(c)
                 test_pool.pop(k)
+
     return test_pool, found_exp, used_char
 
 
@@ -266,19 +277,20 @@ def give_data(chars = set(i for i in 'Q0O1I5S2Z')):
     
     exemplars = {k:''.join(v) for k,v in exemplars.items()}
     test_pool = {k:''.join(v) for k,v in test_pool.items()}
+    
     return exemplars, test_pool
 
 
 
 if __name__ == '__main__':
     # NOTE: to run, create environment for Qwen Omni (instructions in README.md)
-    import glob
+    import glob, tqdm
     im_paths    = glob.glob('sampleCaptchas/input/input*.jpg')
     save_dp     = 'outputs'
     if not os.path.exists(save_dp): os.makedirs(save_dp)
 
     captcha     = Captcha()
-    for im_path in im_paths:
+    for im_path in  tqdm.tqdm(im_paths):
         save_fp = os.path.basename(im_path).replace('.jpg', '.txt').replace('input', 'output')
         save_path = os.path.join(save_dp, save_fp)
         captcha(im_path, save_path)

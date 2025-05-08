@@ -39,7 +39,7 @@ The smaller sized (5.4B) Phi4 Multimodal model from Microsoft performed less wel
     - c. tracking the frequency of the mispredicted characters and the characters they are mistaken for
 
 ## Zero/few-shot benchmarking
-1. Examine the off-the-shelf performance of two families of Vision-Language Models (VLM) instruction-tuned models.
+1. This part examines the off-the-shelf performance of two families of Vision-Language Models (VLM) instruction-tuned models.
     - `Qwen Omni` with multimodal input (text, audio, image) inputs and up to bi-modal outputs (e.g. speech and text)
     - `Phi4 Multimodal` with multimodal input (text, audio, image) and text output.
 2. All of the results in this section came from running the code on a H100 NVL (94GB), but the 3B/5B models can run on a RTXA4000 (16GB) nvidia GPU 
@@ -69,7 +69,7 @@ The smaller sized (5.4B) Phi4 Multimodal model from Microsoft performed less wel
     ```
 
 4. NOTES:
-    - 1-shot experiments are not optimised. Instead of randomly selecting one exemplar, better results might be obtainable with >1 selecting an exemplar that has the most commonly mistaken characters.
+    - 1-shot experiments are not optimised. Instead of randomly selecting one exemplar, better results might be obtainable with selecting an exemplar that has the most commonly mistaken characters.
 
 #### Summary stats
 | model     | size| setting                       | avg time        | CAR   | EM    |
@@ -98,10 +98,10 @@ The smaller sized (5.4B) Phi4 Multimodal model from Microsoft performed less wel
 
 
 ## Reinforcement learning (GRPO) modeling
-The zeroshot performance of the models above are already relatively high. EM of ~17/20. Some light post-tuning could potentially help improve the model's performance, especially if we can help it to better identify visually ambiguous characters and reason over them before providing the answer. In this part, we use reinforcement learning to try and drive further gains. 
+The zeroshot performance of the models above are already relatively high with EM of ~17/20. Some light post-tuning could potentially help improve the model's performance, especially if we can help it to better identify visually ambiguous characters and reason over them before providing the answer. In this part, we use reinforcement learning to try and drive further gains. 
 
 1. This approach was inspired partly by a recent piece of work ([Reinforcement Learning for Reasoning in Large Language Models with One Training Example
-](https://arxiv.org/abs/2504.20571)) that suggests a single example for reinforcement learning with verifiable rewards (RLVR) can already bring about meaningful gains on LLM math reasoning capabilities. Since we have a sample set of captchas for the task, we can transform the task into a verifiable task using these samples (or a subset) of them for training. 
+](https://arxiv.org/abs/2504.20571)) that suggests a single example for reinforcement learning with verifiable rewards (RLVR) can already bring about meaningful gains on LLM math reasoning capabilities. Since we have a sample set of captchas for the task, we can try to extend this finding to vision-language task and models, by casting the current captcha task as a verifiable one using these samples (or a subset) of them for training. 
 2. We use Grouped Relative Policy Optimisation (GRPO), a method that was proposed by the DeepSeek authors for their math and general purpose reasoning models at the start of this year. Post-training was done on the `Phi4 Multimodal` (5.4B) parameters model.
 3. For resource-efficient training, ease of deployment and speed of inference, we use the combination of LoRA fine-tuning on the 5.4B model. The prompting here is similar to the think 0-shot set up in part 1. 
 4. The set of reward functions used are: (i) commonly employed rewards to encourage the model to adhere to desired output formats, (ii) rewards to encourage the model to think and reason before giving the final answer, (iii) verifiable rewards relating to the label of the training images and known constraints of the captchas (e.g. capital A-Z and 0-9). 
