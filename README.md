@@ -8,15 +8,16 @@ conda create -n qwenomni python==3.10 -y
 conda activate qwenomni
 python -m pip install git+https://github.com/huggingface/transformers@v4.51.3-Qwen2.5-Omni-preview
 python -m pip install qwen-omni-utils==0.0.4 -U
-python -m pip install accelerate==1.6.0 torchvision==0.22.0 omegaconf==2.3.0 hydra-core==1.3.2 trl==0.17.0 
-python -m pip install pandas==2.2.3 datasets==3.5.1 peft==0.15.2 bitsandbytes==0.45.5 backoff==2.2.1
+python -m pip install qwen-vl-utils[decord]==0.0.8
+python -m pip install accelerate==1.6.0 torchvision==0.22.0 omegaconf==2.3.0 hydra-core==1.3.2 trl==0.17.0 huggingface-hub==0.30.2
+python -m pip install pandas==2.2.3 datasets==3.5.1 peft==0.15.2 bitsandbytes==0.45.5 backoff==2.2.1 
 python -m pip install flash-attn==2.7.4.post1 --no-build-isolation
 ```
 ##### b. for Phi4 Multimodal
 ```
 conda create -n phi4mm python==3.10 -y
 conda activate phi4mm
-python -m pip install torch==2.6.0 transformers==4.48.2 accelerate==1.3.0 soundfile==0.13.1 pillow==11.1.0
+python -m pip install torch==2.6.0 transformers==4.48.2 accelerate==1.3.0 soundfile==0.13.1 pillow==11.1.0 huggingface-hub==0.30.2
 python -m pip install scipy==1.15.2 torchvision==0.21.0 backoff==2.2.1 peft==0.13.2 pandas==2.2.3 datasets==3.5.1 
 python -m pip install bitsandbytes==0.45.5 omegaconf==2.3.0 hydra-core==1.3.2 trl==0.17.0 flash_attn==2.7.4.post1 
 ```

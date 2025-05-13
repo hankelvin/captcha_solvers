@@ -4,53 +4,100 @@ SEED = 117438
 torch.manual_seed(SEED)
 
 class Captcha(object):
-    def __init__(self):
+    def __init__(self, args):
         from omegaconf import OmegaConf
         if   torch.mps.is_available():  device = 'mps'
         elif torch.cuda.is_available(): device = 'cuda'
         else:                           device = 'cpu'
     
         # 0. set up config, load exemplars
-        cfg = OmegaConf.load('config.yaml')
-        cfg.model = 'qwenomni'
-        cfg.size  = '7B'
-        cfg.mode  = 'zeroshot'
+        cfg         = OmegaConf.load('config.yaml')
+        cfg.dirpath = os.getcwd()
+        cfg.model   = args.model
+        cfg.size    = args.size
+        cfg.mode    = 'zeroshot'
+        cfg.load_in_4bit = True if device in ['cuda'] else False
+        # NOTE; bnb quantisation not yet ready for Apple silicon 
+        # https://github.com/bitsandbytes-foundation/bitsandbytes/issues/252
         from zeroshot import give_data
         exemplars, __ = give_data(chars = set(i for i in 'Q0O1I5S2Z'))
 
         self.cfg                = cfg
+        self.args               = args
         self.use_audio_in_video = False
         self.exemplars          = exemplars
-        
+
         # 1. load model and media processor
         self.model_path         = cfg.models[cfg.model][cfg.size]    
-        attn_implementation     = 'flash_attention_2'
-        if cfg.model in ['qwenomni']:
-            from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
-            from qwen_omni_utils import process_mm_info
-            self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(self.model_path,
-                                                                            torch_dtype         = torch.bfloat16,
-                                                                            device_map          = device,
-                                                                            attn_implementation = attn_implementation)
-            self.model.disable_talker()
-            self.processor          = Qwen2_5OmniProcessor.from_pretrained(self.model_path)
-            self.process_mm_info    = process_mm_info
-        
+        attn_implementation     = 'flash_attention_2' if device in ['cuda'] else 'eager'
+        torch_dtype             = torch.bfloat16
+
+        assert (cfg.load_in_4bit and cfg.load_in_8bit) is False # both False or one False
+        if cfg.load_in_4bit or cfg.load_in_8bit:
+            from transformers import BitsAndBytesConfig        
+            bnb_args = {'load_in_4bit': cfg.load_in_4bit, 'load_in_8bit': cfg.load_in_8bit}
+            if cfg.load_in_4bit:
+                bnb_args['bnb_4bit_quant_type']         = "nf4"
+                bnb_args['bnb_4bit_use_double_quant']   = True
+                bnb_args['bnb_4bit_compute_dtype']      = torch_dtype
+            quantization_config = BitsAndBytesConfig(**bnb_args)
+        else: quantization_config = None
+    
+        self.cloud_inference = self.args.cloud_inference
+        if self.cloud_inference:
+            from huggingface_hub import InferenceClient
+            assert cfg.model in ['qwen25vl']
+            self.client     = InferenceClient(provider = 'hf-inference', api_key = args.hf_token)
+            cfg.size        = '32B' # HF inference has >= 32B only
+            self.model_path = cfg.models[cfg.model][cfg.size]    
+
+        self.model = None
+        if cfg.model in ['qwenomni', 'qwen25vl']:
+            if  cfg.model == 'qwenomni': 
+                from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
+                from qwen_omni_utils import process_mm_info
+                if not self.cloud_inference:
+                    self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(self.model_path,
+                                                                                torch_dtype         = torch_dtype,
+                                                                                device_map          = device,
+                                                                                attn_implementation = attn_implementation,
+                                                                                quantization_config = quantization_config)
+                    self.model.disable_talker()
+                self.processor          = Qwen2_5OmniProcessor.from_pretrained(self.model_path)
+                self.process_mm_info    = process_mm_info
+            elif cfg.model == 'qwen25vl': 
+                from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+                from qwen_vl_utils import process_vision_info
+                if not self.cloud_inference:
+                    self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_path, 
+                                                                                torch_dtype         = torch_dtype,
+                                                                                device_map          = device,
+                                                                                attn_implementation = attn_implementation,
+                                                                                quantization_config = quantization_config)
+                self.processor = AutoProcessor.from_pretrained(self.model_path)
+                self.process_mm_info = process_vision_info
+            else: raise NotImplementedError
+            
         elif cfg.model in ['phi4mm']: 
             from transformers import AutoModelForCausalLM, AutoProcessor, GenerationConfig
-            self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code = True)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_path, 
-                device_map = device, 
-                torch_dtype = torch.bfloat16, 
-                trust_remote_code = True,
-                _attn_implementation = attn_implementation).cuda()
+            if not self.cloud_inference:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path, 
+                    device_map = device, 
+                    torch_dtype = torch.bfloat16, 
+                    trust_remote_code = True,
+                    quantization_config = quantization_config,
+                    _attn_implementation = attn_implementation).cuda()
 
-            # Load generation config
-            self.model.generation_config = GenerationConfig.from_pretrained(self.model_path)
+                # Load generation config
+                self.model.generation_config = GenerationConfig.from_pretrained(self.model_path)
+            self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code = True)
             self.process_mm_info = None
         
         else: raise NotImplementedError
+        print('USING CLOUD INFERENCE:', self.cloud_inference)
+        print('MODEL FOR INFERENCE:',   self.model_path)
+        print('QUANTISED STATUS:',      self.cfg.load_in_4bit, self.cfg.load_in_8bit)
 
     def __call__(self, im_path, save_path):
         """
@@ -76,7 +123,7 @@ class Captcha(object):
         think_key   = 'think_grpo' if 'grpo' in self.cfg.mode else 'think'
 
         # add few-shot exemplars (if specified)
-        if self.exemplars: 
+        if self.exemplars and self.cfg.mode != 'zeroshot': 
             for oneshot_fp, oneshot_label in self.exemplars.items():
                 if  self.cfg.mode.startswith('think'):
                     prompt  = self.cfg.prompt_library[think_key]
@@ -85,8 +132,12 @@ class Captcha(object):
                     prompt  = self.cfg.prompt_library[mode_key]
                     label   = oneshot_label
                 image_path = f'{dp}{self.cfg.inputs_path}/{oneshot_fp}'
+                if self.cloud_inference:
+                    image_line = {"type": "image_url", "image_url": {"url": image_path}}
+                else: 
+                    image_line = {'type': 'image', 'image': image_path}
                 conversation.append({'role': 'user',
-                                    'content': [{'type': 'image', 'image': image_path},
+                                    'content': [image_line, 
                                                 {'type': 'text', 'text': prompt },]})
                 conversation.append({'role': 'assistant',
                                     'content': [{'type': 'text', 'text':  label},],})
@@ -97,8 +148,12 @@ class Captcha(object):
         else: prompt = self.cfg.prompt_library[mode_key]
         if full_path:   image_path = im_path
         else:           image_path = f'{dp}{self.cfg.inputs_path}/{im_path}'
+        if self.cloud_inference: 
+            image_line = {"type": "image_url", "image_url": {"url": image_path}}
+        else: 
+            image_line = {'type': 'image', 'image': image_path}
         conversation.append({'role': 'user',
-                            'content': [{'type': 'image', 'image': image_path},
+                            'content': [image_line,
                                         {'type': 'text', 'text':  prompt},],})
         return conversation
     
@@ -109,6 +164,7 @@ class Captcha(object):
             im_path: .jpg image path to load and to infer
             full_path: whether the absolute path has been specified for im_path
         """
+        if self.cloud_inference: raise NotImplementedError
         dp = '' if self.cfg.dirpath is None else f'{self.cfg.dirpath}/'
         user_prompt         = '<|user|>'
         assistant_prompt    = '<|assistant|>'
@@ -119,7 +175,7 @@ class Captcha(object):
         mode_key    = 'zeroshot' if 'zeroshot' in self.cfg.mode else 'fewshot'
         think_key   = 'think_grpo' if 'grpo' in self.cfg.mode else 'think'
         # add few-shot exemplars (if specified)
-        if self.exemplars: 
+        if self.exemplars and self.cfg.mode != 'zeroshot':
             for oneshot_fp, oneshot_label in self.exemplars.items():
                 if  self.cfg.mode.startswith('think'):
                     prompt  = self.cfg.prompt_library[think_key]
@@ -152,18 +208,33 @@ class Captcha(object):
             save_path: if specified, an absolute filepath for saving the predicted sequence to (as a .txt file)
             full_path: whether the absolute path has been specified for im_path
         """
-        if self.cfg.model in ['qwenomni']:
+        if self.cloud_inference:
             conversation = self.make_one_conversation_qwenomni(im_path, full_path)
             prompt_text = self.processor.apply_chat_template(conversation, add_generation_prompt = True, tokenize = False)
-            audios, images, videos  = self.process_mm_info(conversation, use_audio_in_video = self.use_audio_in_video)
-            inputs                  = self.processor(text = prompt_text, audio = audios, images = images, videos = videos, 
+            client_completion = self.client.chat.completions.create(model = self.model_path, messages = conversation)
+            prompt_text = [prompt_text] # qwen25vl processor's apply_chat_template returns string for 1 conversation input
+
+        elif not self.cloud_inference and self.cfg.model in ['qwenomni', 'qwen25vl']:
+            conversation = self.make_one_conversation_qwenomni(im_path, full_path)
+            prompt_text = self.processor.apply_chat_template(conversation, add_generation_prompt = True, tokenize = False)
+            if  self.cfg.model == 'qwenomni':
+                audios, images, videos  = self.process_mm_info(conversation, use_audio_in_video = self.use_audio_in_video)
+                inputs                  = self.processor(text = prompt_text, audio = audios, images = images, videos = videos, 
                                             return_tensors = "pt", padding = True, use_audio_in_video = self.use_audio_in_video)
-            inputs                  = inputs.to(self.model.device).to(self.model.dtype)
-            with torch.no_grad():
-                prompt_completion_ids   = self.model.generate(**inputs, **self.cfg.gen_args,
-                                                              use_audio_in_video = self.use_audio_in_video)
+                inputs                  = inputs.to(self.model.device).to(self.model.dtype)
+                with torch.no_grad():
+                    prompt_completion_ids   = self.model.generate(**inputs, **self.cfg.gen_args,
+                                                                use_audio_in_video = self.use_audio_in_video)
+            elif self.cfg.model == 'qwen25vl':
+                images, videos  = self.process_mm_info(conversation)
+                inputs          = self.processor(text = prompt_text, images = images, videos = videos, 
+                                            return_tensors = "pt", padding = True)
+                inputs          = inputs.to(self.model.device).to(self.model.dtype)
+                with torch.no_grad():
+                    prompt_completion_ids   = self.model.generate(**inputs, **self.cfg.gen_args)
+                prompt_text = [prompt_text] # qwen25vl processor's apply_chat_template returns string for 1 conversation input
         
-        elif self.cfg.model in ['phi4mm']:
+        elif not self.cloud_inference and self.cfg.model in ['phi4mm']:
             prompt_text, image_files = self.make_one_conversation_phi4mm(im_path, full_path)
             images = [Image.open(fp) for fp in image_files]
             inputs = self.processor(text = prompt_text, images = images, return_tensors='pt')
@@ -176,12 +247,19 @@ class Captcha(object):
         
         else: raise NotImplementedError
         
-        prompt_completion_texts     = self.processor.batch_decode(prompt_completion_ids, 
-                                    skip_special_tokens = True, clean_up_tokenization_spaces = False)
-        assert len(prompt_completion_texts) == 1 and len(prompt_text) == 1
+        if self.cloud_inference:
+            assert type(prompt_text) is list
+            prefills                = prompt_text
+            predictions             = [client_completion.choices[0].message.content]
+            assert len(prefills) == len(predictions)
+            prompt_completion_texts = [f"{prefill} {pred}" for prefill, pred in zip(prefills, predictions)]
+        else:
+            prompt_completion_texts = self.processor.batch_decode(prompt_completion_ids, 
+                                        skip_special_tokens = True, clean_up_tokenization_spaces = False)
+            assert len(prompt_completion_texts) == 1 and len(prompt_text) == 1, prompt_completion_texts
 
-        prefills, completions, predictions = extract_results(self.cfg['mode'], prompt_completion_texts, 
-                                                prompt_text, self.model_path, self.processor)
+            prefills, completions, predictions = extract_results(self.cfg['mode'], prompt_completion_texts, 
+                                                    prompt_text, self.model_path, self.processor)
         
         if save_path is not None: 
             with open(save_path, encoding = 'utf-8', mode = 'w+') as f:
@@ -202,7 +280,7 @@ def extract_results(mode, prompt_completion_texts, prompt_text, model_path, proc
         processor: the text processing object (holding the LLM tokenizer)
     """
     # get prefill size to trim from generated outputs
-    c1 = model_path.startswith('Qwen/Qwen2.5-Omni') 
+    c1 = model_path.startswith('Qwen/Qwen2.5-Omni') or model_path.startswith('Qwen/Qwen2.5-VL')
     c2 = model_path.startswith('microsoft/Phi-4-multimodal-instruct')
     if  c1 or c2:
         prefills = processor.tokenizer(prompt_text)['input_ids']
@@ -284,13 +362,29 @@ def give_data(chars = set(i for i in 'Q0O1I5S2Z')):
 
 if __name__ == '__main__':
     # NOTE: to run, create environment for Qwen Omni (instructions in README.md)
-    import glob, tqdm
+    import glob, tqdm, argparse
+    parser = argparse.ArgumentParser(description='Arugments for running Captcha instance to predict captcha contents.')
+    parser.add_argument('--model', help = 'short name of the model to load for inference (see config.yaml).', 
+                        default = 'qwen25vl', type = str)
+    parser.add_argument('--size', help = 'size of the model to load for inference.', 
+                        default = '3B', type = str)
+    parser.add_argument('--cloud_inference', help = 'whether to use cloud inference to run model', 
+                        default = False, type = bool)
+    parser.add_argument('--cloud_bucket', help = 'the cloud bucket storage for a known file useable for inference', 
+                        default = 'https://storage.googleapis.com/captcha_solvers/', type = str)
+    parser.add_argument('--hf_token', help = 'HuggingFace token for cloud inference. see https://huggingface.co/docs/hub/security-tokens', 
+                        default = None, type = str)
+    args = parser.parse_args()
+
     im_paths    = glob.glob('sampleCaptchas/input/input*.jpg')
     save_dp     = 'outputs'
     if not os.path.exists(save_dp): os.makedirs(save_dp)
 
-    captcha     = Captcha()
+    captcha     = Captcha(args = args)
     for im_path in  tqdm.tqdm(im_paths):
+        # replace with hosted version of file (cloud API requires URL for image input)
+        if args.cloud_inference: im_path = os.path.join(args.cloud_bucket, os.path.basename(im_path))
+        print('Working on this im_path:', im_path)
         save_fp = os.path.basename(im_path).replace('.jpg', '.txt').replace('input', 'output')
         save_path = os.path.join(save_dp, save_fp)
         captcha(im_path, save_path)
